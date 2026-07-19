@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SPD Schedule</title>
+    
+    <!-- Instant Theme Loader (Prevents White Flash) -->
+    <script>
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    </script>
+
+    <!-- Web App & Mobile Install Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SPD Schedule">
+    <meta name="theme-color" content="#0f172a">
+    
+    <!-- Embedded SVG Icon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'><path d='M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z'/></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233b82f6'><path d='M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z'/></svg>">
+    
+    <!-- Web App Manifest -->
+    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Schedule%20Dashboard%20Pro%22,%22short_name%22:%22Schedule%22,%22display%22:%22standalone%22,%22background_color%22:%22%230f172a%22,%22theme_color%22:%22%233b82f6%22}">
+
+    <!-- Tailwind CSS (Script First, Config Second) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { 
+            darkMode: 'class' 
+        }
+    </script>
+    
+    <!-- PapaParse & Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        .table-container::-webkit-scrollbar { height: 12px; width: 12px; }
+        .table-container::-webkit-scrollbar-track { background: transparent; }
+        .table-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+        .dark .table-container::-webkit-scrollbar-thumb { background-color: #475569; }
+        
+        .sticky-col-left { position: sticky; left: 0; z-index: 10; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
+        thead .sticky-col-left { z-index: 20; }
+        .today-col { position: relative; }
+        .today-col::after { content: ''; position: absolute; inset: 0; border-left: 2px solid #3b82f6; border-right: 2px solid #3b82f6; pointer-events: none; }
+        
+        .read-only-mode .shift-btn, .read-only-mode .role-cell { cursor: default !important; opacity: 0.9; }
+        .read-only-mode .delete-emp-btn, .read-only-mode .add-control, .read-only-mode .edit-indicator-text { display: none !important; }
+
+        .collapsible-panel { transition: max-height 0.25s ease-out, opacity 0.2s ease-out; max-height: 1000px; opacity: 1; }
+        .collapsible-panel.collapsed { max-height: 0 !important; opacity: 0 !important; overflow: hidden !important; pointer-events: none; }
+
+        @media print {
+            .no-print { display: none !important; }
+            .table-container { max-height: none !important; overflow: visible !important; box-shadow: none !important; }
+            body, .dark body { background: white !important; color: black !important; }
+            .sticky-col-left { position: static !important; box-shadow: none !important; }
+            * { border-color: #ddd !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans min-h-screen p-2 md:p-6 transition-colors duration-200 pt-safe">
+
+    <!-- Toast Notification -->
+    <div id="toastNotification" class="fixed bottom-4 right-4 z-[70] transform transition-all duration-300 translate-y-32 opacity-0 bg-slate-800 text-white px-5 py-4 rounded-xl shadow-2xl flex items-center gap-3 border border-slate-700 pointer-events-none">
+        <svg class="w-6 h-6 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <div>
+            <h4 class="font-bold text-sm" id="toastTitle">Success</h4>
+            <p class="text-xs text-slate-300" id="toastMessage">Action completed.</p>
+        </div>
+    </div>
+
+    <div class="max-w-[98%] mx-auto relative mt-1 md:mt-0">
+        <!-- Top App Bar Header -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3 border-b border-slate-200 dark:border-slate-700 pb-3 no-print">
+            <div>
+                <h1 class="text-2xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">SPD Schedule</h1>
+                <p class="text-sm text-slate-500 dark:text-slate-400 font-medium" id="dateDisplay">Loading date...</p>
+            </div>
+            
+            <!-- Quick View Mode Switcher -->
+            <div class="flex items-center justify-between w-full md:w-auto gap-2 bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl">
+                <button id="setViewDayFocus" class="flex-1 md:flex-none px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-white">
+                    📅 Day Focus
+                </button>
+                <button id="setViewFullTable" class="flex-1 md:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200">
+                    📊 Full Table
+                </button>
+            </div>
+
+            <!-- Utility Settings Drawer Trigger -->
+            <div class="flex items-center gap-2 w-full md:w-auto border-t md:border-none pt-2 md:pt-0 justify-end">
+                <button id="toggleAdminPanelBtn" class="text-xs font-semibold px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg border dark:border-slate-700 flex items-center gap-1">
+                    ⚙️ Admin Controls
+                </button>
+                <button id="themeToggle" class="p-2 bg-slate-200 dark:bg-slate-800 rounded-full hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors" title="Toggle Theme">
+                    <!-- Sun Icon (Shows in Dark Mode) -->
+                    <svg class="w-5 h-5 hidden dark:block text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"></path></svg>
+                    <!-- Moon Icon (Shows in Light Mode) -->
+                    <svg class="w-5 h-5 block dark:hidden text-slate-700" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path></svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Hidden Admin Collapsible Panel -->
+        <div id="adminPanel" class="bg-slate-100 dark:bg-slate-800 rounded-xl p-3 mb-4 border dark:border-slate-700 flex flex-wrap gap-2 items-center justify-between no-print hidden">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">System Management:</span>
+            <div class="flex items-center gap-2 flex-wrap">
+                <button id="lockBtn" class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800 rounded-lg app-control">🔓 Edit Mode Enabled</button>
+                <button id="undoBtn" class="opacity-50 cursor-not-allowed px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600 rounded-lg flex items-center gap-1 app-control">🔄 Undo Action</button>
+                <label for="appendFileInput" class="add-control cursor-pointer px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 rounded-lg app-control">+ Add CSV</label>
+                <input type="file" id="appendFileInput" accept=".csv" class="hidden">
+                <button id="exportViewBtn" class="app-control px-3 py-1.5 text-xs font-medium text-blue-700 bg-white border dark:bg-slate-700 dark:text-blue-400 dark:border-slate-600 rounded-lg">📤 CSV Export</button>
+                <label for="importBackupInput" class="app-control cursor-pointer px-3 py-1.5 text-xs font-medium text-amber-700 bg-white border dark:bg-slate-700 dark:text-amber-400 dark:border-slate-600 rounded-lg">📂 Restore .JSON</label>
+                <input type="file" id="importBackupInput" accept=".json" class="hidden">
+                <button id="exportBackupBtn" class="app-control px-3 py-1.5 text-xs font-medium text-amber-700 bg-white border dark:bg-slate-700 dark:text-amber-400 dark:border-slate-600 rounded-lg">💾 Backup App</button>
+                <button id="clearDataBtn" class="app-control px-3 py-1.5 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-100 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800 rounded-lg">🗑️ Factory Reset</button>
+            </div>
+        </div>
+
+        <!-- Upload View -->
+        <div id="uploadSection" class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-12 text-center no-print">
+            <div class="max-w-md mx-auto">
+                <svg class="w-16 h-16 text-blue-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                <h2 class="text-2xl font-bold mb-2">Upload Data</h2>
+                <div class="flex flex-col gap-3 mt-6">
+                    <label for="csvFileInput" class="cursor-pointer inline-flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow-sm transition-colors font-medium text-lg">Select CSV Schedule</label>
+                    <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                    <div class="relative flex items-center py-2"><div class="flex-grow border-t border-slate-300 dark:border-slate-600"></div><span class="flex-shrink-0 mx-4 text-slate-400 text-sm">OR</span><div class="flex-grow border-t border-slate-300 dark:border-slate-600"></div></div>
+                    <label for="importInitialBackup" class="cursor-pointer inline-flex justify-center items-center gap-2 bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50 dark:border-amber-800 border border-amber-200 px-6 py-3 rounded-lg shadow-sm transition-colors font-medium text-lg">📂 Restore App Backup (.json)</label>
+                    <input type="file" id="importInitialBackup" accept=".json" class="hidden">
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Analytics Panel (Collapsible) -->
+        <div id="analyticsBlock" class="hidden no-print mb-4">
+            <div class="flex justify-between items-center mb-1.5 px-1">
+                <button id="collapseAnalyticsBtn" class="text-xs font-bold text-slate-400 dark:text-slate-500 flex items-center gap-1 tracking-wider uppercase">
+                    🔽 Hide Overview Analytics
+                </button>
+            </div>
+            
+            <div id="collapsibleDashboardArea" class="collapsible-panel grid grid-cols-1 xl:grid-cols-3 gap-4">
+                <div class="grid grid-cols-5 xl:flex xl:flex-col gap-2">
+                    <div class="bg-white dark:bg-slate-800 p-2.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 text-center xl:text-left">
+                        <p class="text-[10px] md:text-xs text-slate-400 font-bold uppercase tracking-wider">Total</p>
+                        <p class="text-lg md:text-xl font-black mt-0.5" id="metricTotal">-</p>
+                    </div>
+                    <div class="bg-emerald-50 dark:bg-emerald-900/10 p-2.5 rounded-xl shadow-sm border border-emerald-100 dark:border-emerald-900/20 text-center xl:text-left">
+                        <p class="text-[10px] md:text-xs text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider">Duty</p>
+                        <p class="text-lg md:text-xl font-black mt-0.5 text-emerald-700 dark:text-emerald-300" id="metricWorking">-</p>
+                    </div>
+                    <div class="bg-indigo-50 dark:bg-indigo-900/10 p-2.5 rounded-xl shadow-sm border border-indigo-100 dark:border-indigo-900/20 text-center xl:text-left">
+                        <p class="text-[10px] md:text-xs text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-wider">PTO</p>
+                        <p class="text-lg md:text-xl font-black mt-0.5 text-indigo-700 dark:text-indigo-300" id="metricPTO">-</p>
+                    </div>
+                    <div class="bg-rose-50 dark:bg-rose-900/10 p-2.5 rounded-xl shadow-sm border border-rose-100 dark:border-rose-900/20 text-center xl:text-left">
+                        <p class="text-[10px] md:text-xs text-rose-600 dark:text-rose-400 font-bold uppercase tracking-wider">OFF</p>
+                        <p class="text-lg md:text-xl font-black mt-0.5 text-rose-700 dark:text-rose-300" id="metricOff">-</p>
+                    </div>
+                    <div class="bg-amber-50 dark:bg-amber-900/10 p-2.5 rounded-xl shadow-sm border border-amber-100 dark:border-amber-900/20 text-center xl:text-left">
+                        <p class="text-[10px] md:text-xs text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider">RDO</p>
+                        <p class="text-lg md:text-xl font-black mt-0.5 text-amber-700 dark:text-amber-300" id="metricRDO">-</p>
+                    </div>
+                </div>
+                <div class="xl:col-span-2 bg-white dark:bg-slate-800 p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col">
+                    <div class="flex-1 min-h-[90px] xl:min-h-[140px] w-full relative">
+                        <canvas id="forecastChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Interface Area -->
+        <div id="dashboardSection" class="hidden">
+            
+            <!-- Filter Controls Panel -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4 p-3 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 no-print">
+                <div class="relative flex gap-2 w-full md:col-span-2">
+                    <div class="flex-1">
+                        <input type="text" id="searchInput" placeholder="Search employee by name..." class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg outline-none text-base transition-shadow focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="add-control">
+                        <button id="addEmployeeBtn" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-base h-full shadow-sm transition-colors whitespace-nowrap">+ Staff</button>
+                    </div>
+                </div>
+                
+                <div>
+                    <select id="roleFilter" class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg outline-none text-base focus:ring-2 focus:ring-blue-500">
+                        <option value="ALL">All Departments / Roles</option>
+                    </select>
+                </div>
+
+                <div>
+                    <select id="sortFilter" class="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg outline-none text-base focus:ring-2 focus:ring-blue-500">
+                        <option value="DEFAULT">Original CSV Layout Order</option>
+                        <option value="AZ">Alphabetical Sort (A-Z)</option>
+                        <option value="WORKING">On Duty Today First</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- VIEW 1: SINGLE DAY FOCUS MODULE -->
+            <div id="dayFocusView" class="block">
+                <div class="flex items-center justify-between bg-blue-600 text-white p-3 rounded-xl shadow-md mb-4">
+                    <button id="prevDayBtn" class="p-2.5 hover:bg-blue-700 active:bg-blue-800 rounded-lg transition-colors font-black text-xl select-none">&larr;</button>
+                    <div class="text-center">
+                        <span class="block text-[10px] uppercase font-bold tracking-widest text-blue-200">Focused Target Date</span>
+                        <h2 id="focusedDateHeading" class="text-xl font-black tracking-tight">00/00/00</h2>
+                    </div>
+                    <button id="nextDayBtn" class="p-2.5 hover:bg-blue-700 active:bg-blue-800 rounded-lg transition-colors font-black text-xl select-none">&rarr;</button>
+                </div>
+                
+                <div class="flex items-center gap-2 mb-3 px-1">
+                    <span class="text-xs font-bold text-slate-400 whitespace-nowrap">Jump to:</span>
+                    <select id="monthJumpDayView" class="px-2 py-1 bg-white border rounded-lg text-xs font-bold dark:bg-slate-800 dark:border-slate-700 w-full"></select>
+                </div>
+
+                <div id="dayFocusCardsContainer" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <!-- Cards dynamically injected -->
+                </div>
+            </div>
+
+            <!-- VIEW 2: TRADITIONAL MASTER FULL SPREADSHEET GRID -->
+            <div id="fullTableView" class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden hidden relative">
+                <div class="p-2 bg-slate-100 dark:bg-slate-900 border-b dark:border-slate-800 flex items-center justify-between text-xs gap-2">
+                    <span class="text-slate-400 font-bold uppercase tracking-wider">Horizontal Matrix View</span>
+                    <select id="monthJumpTableView" class="px-2 py-1.5 bg-white border rounded-lg font-bold dark:bg-slate-800 dark:border-slate-700 w-48"></select>
+                </div>
+                <div class="table-container overflow-x-auto overflow-y-auto max-h-[55vh] relative" id="tableContainer">
+                    <table class="w-full text-base border-collapse select-none">
+                        <thead class="text-xs text-slate-700 dark:text-slate-300 uppercase bg-slate-100 dark:bg-slate-900 sticky top-0 z-10 shadow-sm" id="tableHead"></thead>
+                        <tbody id="tableBody" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <p class="edit-indicator-text text-center text-xs text-slate-400 font-medium mt-4 no-print">💡 Tip: Tap an employee's shift pill to modify it. Long-press (or right-click) to attach notes.</p>
+        </div>
+    </div>
+
+    <!-- Shift Selection Modal -->
+    <div id="shiftEditModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm hidden opacity-0 transition-opacity duration-200 px-4">
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-full max-w-sm transform scale-95 transition-transform duration-200 border border-slate-200 dark:border-slate-700">
+            <h3 class="text-xl font-black text-slate-900 dark:text-white tracking-tight mb-1">Modify Shift Status</h3>
+            <p class="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-4"><span id="seEmpName" class="text-blue-600 dark:text-blue-400"></span> • <span id="seDate"></span></p>
+            
+            <div class="grid grid-cols-2 gap-2.5 mb-4">
+                <button class="se-btn py-3 rounded-xl font-black text-base bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40 active:scale-95 transition-transform" data-val="">Working</button>
+                <button class="se-btn py-3 rounded-xl font-black text-base bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40 active:scale-95 transition-transform" data-val="OFF">OFF</button>
+                <button class="se-btn py-3 rounded-xl font-black text-base bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40 active:scale-95 transition-transform" data-val="PTO">PTO</button>
+                <button class="se-btn py-2.5 rounded-xl font-black text-base bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40 active:scale-95 transition-transform" data-val="RDO">RDO</button>
+            </div>
+            
+            <div class="relative mb-4">
+                <div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-slate-200 dark:border-slate-700"></div></div>
+                <div class="relative flex justify-center"><span class="px-2 bg-white dark:bg-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider">Custom Shift/Hours</span></div>
+            </div>
+
+            <input type="text" id="seCustomInput" placeholder="e.g., 0700-1500, Night Shift" class="w-full px-3 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl outline-none text-base focus:ring-2 focus:ring-blue-500 mb-4">
+            
+            <div class="flex justify-end gap-2">
+                <button id="seCancelBtn" class="px-4 py-2.5 text-base font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 rounded-xl transition-colors">Cancel</button>
+                <button id="seSaveBtn" class="px-5 py-2.5 text-base font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-md shadow-blue-500/20">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Employee Profile Modal Overlay -->
+    <div id="employeeModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-xl w-[90%] max-w-md transform scale-95 transition-transform duration-200 border border-slate-200 dark:border-slate-700">
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h3 class="text-2xl font-black text-slate-900 dark:text-white tracking-tight" id="modalEmpName">Name</h3>
+                    <p class="text-sm font-bold text-blue-500" id="modalEmpRole">Role</p>
+                </div>
+                <button id="closeModal" class="text-slate-400 hover:text-rose-500 transition-colors p-2">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="space-y-3">
+                <div class="flex justify-between p-3.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl border border-emerald-100 dark:border-emerald-800/30">
+                    <span class="font-bold text-emerald-800 dark:text-emerald-300">Total On Duty Days</span>
+                    <span class="font-black text-emerald-900 dark:text-emerald-200 text-lg" id="modalWorking">0</span>
+                </div>
+                <div class="flex justify-between p-3.5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800/30">
+                    <span class="font-bold text-indigo-800 dark:text-indigo-300">PTO Days</span>
+                    <span class="font-black text-indigo-900 dark:text-indigo-200 text-lg" id="modalPTO">0</span>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="flex justify-between p-3.5 bg-rose-50 dark:bg-rose-900/20 rounded-xl border border-rose-100 dark:border-rose-800/30">
+                        <span class="font-bold text-rose-800 dark:text-rose-300">Total OFF</span>
+                        <span class="font-black text-rose-900 dark:text-rose-200 text-lg" id="modalOff">0</span>
+                    </div>
+                    <div class="flex justify-between p-3.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-100 dark:border-amber-800/30">
+                        <span class="font-bold text-amber-800 dark:text-amber-300">Total RDO</span>
+                        <span class="font-black text-amber-900 dark:text-amber-200 text-lg" id="modalRDO">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Engine Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Theme Toggle Execution
+            document.getElementById('themeToggle').addEventListener('click', () => {
+                const html = document.documentElement;
+                html.classList.toggle('dark');
+                localStorage.theme = html.classList.contains('dark') ? 'dark' : 'light';
+                if(chartInstance) updateChart(allDates, currentFilteredRows); 
+            });
+
+            // Layout View Switchers
+            const btnDayFocus = document.getElementById('setViewDayFocus');
+            const btnFullTable = document.getElementById('setViewFullTable');
+            const viewDayFocus = document.getElementById('dayFocusView');
+            const viewFullTable = document.getElementById('fullTableView');
+            
+            // Core DOM Targets
+            const uploadSection = document.getElementById('uploadSection');
+            const dashboardSection = document.getElementById('dashboardSection');
+            const analyticsBlock = document.getElementById('analyticsBlock');
+            const toggleAdminPanelBtn = document.getElementById('toggleAdminPanelBtn');
+            const adminPanel = document.getElementById('adminPanel');
+            const collapseAnalyticsBtn = document.getElementById('collapseAnalyticsBtn');
+            const collapsibleDashboardArea = document.getElementById('collapsibleDashboardArea');
+            
+            const fileInput = document.getElementById('csvFileInput');
+            const appendFileInput = document.getElementById('appendFileInput');
+            const importInitialBackup = document.getElementById('importInitialBackup');
+            const importBackupInput = document.getElementById('importBackupInput');
+            
+            const tableHead = document.getElementById('tableHead');
+            const tableBody = document.getElementById('tableBody');
+            const dayFocusCardsContainer = document.getElementById('dayFocusCardsContainer');
+            const focusedDateHeading = document.getElementById('focusedDateHeading');
+            
+            // Buttons & Controls
+            const lockBtn = document.getElementById('lockBtn');
+            const undoBtn = document.getElementById('undoBtn');
+            const clearDataBtn = document.getElementById('clearDataBtn');
+            const exportViewBtn = document.getElementById('exportViewBtn');
+            const exportBackupBtn = document.getElementById('exportBackupBtn');
+            const addEmployeeBtn = document.getElementById('addEmployeeBtn');
+            const prevDayBtn = document.getElementById('prevDayBtn');
+            const nextDayBtn = document.getElementById('nextDayBtn');
+            
+            const searchInput = document.getElementById('searchInput');
+            const sortFilter = document.getElementById('sortFilter');
+            const roleFilter = document.getElementById('roleFilter');
+            const monthJumpDayView = document.getElementById('monthJumpDayView');
+            const monthJumpTableView = document.getElementById('monthJumpTableView');
+            const dateDisplay = document.getElementById('dateDisplay');
+            
+            // Analytics Metrics Elements
+            const metricTotal = document.getElementById('metricTotal');
+            const metricWorking = document.getElementById('metricWorking');
+            const metricPTO = document.getElementById('metricPTO');
+            const metricOff = document.getElementById('metricOff');
+            const metricRDO = document.getElementById('metricRDO');
+
+            // Modals
+            const employeeModal = document.getElementById('employeeModal');
+            const shiftEditModal = document.getElementById('shiftEditModal');
+            
+            // Core Reactive Architecture State
+            let allData = [];
+            let allDates = [];
+            let notesData = {}; 
+            let undoStack = []; 
+            let currentFilteredRows = [];
+            let todayStr = ""; // System Auto-Scroll Tracker
+            let focusedDateStr = ""; // UI Swiper Tracker
+            let chartInstance = null;
+            let editingShift = null; 
+            let isReadOnly = false;
+            let layoutViewMode = 'DAY_FOCUS'; 
+
+            if(window.innerWidth >= 1024) {
+                layoutViewMode = 'FULL_TABLE';
+                switchViewLayout('FULL_TABLE');
+            }
+
+            // Setup Responsive Layout Triggers
+            btnDayFocus.addEventListener('click', () => switchViewLayout('DAY_FOCUS'));
+            btnFullTable.addEventListener('click', () => switchViewLayout('FULL_TABLE'));
+
+            function switchViewLayout(mode) {
+                layoutViewMode = mode;
+                if(mode === 'DAY_FOCUS') {
+                    btnDayFocus.className = "flex-1 md:flex-none px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-white";
+                    btnFullTable.className = "flex-1 md:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200";
+                    viewDayFocus.classList.replace('hidden', 'block');
+                    viewFullTable.classList.replace('block', 'hidden');
+                } else {
+                    btnFullTable.className = "flex-1 md:flex-none px-4 py-2 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-white";
+                    btnDayFocus.className = "flex-1 md:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200";
+                    viewFullTable.classList.replace('hidden', 'block');
+                    viewDayFocus.classList.replace('block', 'hidden');
+                    scrollToCurrentDateColumn();
+                }
+                renderDashboard();
+            }
+
+            toggleAdminPanelBtn.addEventListener('click', () => adminPanel.classList.toggle('hidden'));
+            collapseAnalyticsBtn.addEventListener('click', () => {
+                collapsibleDashboardArea.classList.toggle('collapsed');
+                collapseAnalyticsBtn.innerText = collapsibleDashboardArea.classList.contains('collapsed') ? "🔼 Show Overview Analytics" : "🔽 Hide Overview Analytics";
+            });
+
+            prevDayBtn.addEventListener('click', () => shiftFocusDateOffset(-1));
+            nextDayBtn.addEventListener('click', () => shiftFocusDateOffset(1));
+
+            function shiftFocusDateOffset(direction) {
+                let currentIdx = allDates.indexOf(focusedDateStr);
+                if(currentIdx > -1) {
+                    let nextIdx = currentIdx + direction;
+                    if(nextIdx >= 0 && nextIdx < allDates.length) {
+                        focusedDateStr = allDates[nextIdx];
+                        renderDashboard();
+                        scrollToCurrentDateColumn();
+                    }
+                }
+            }
+
+            // Engine: Auto-scroll perfectly to focus date column
+            function scrollToCurrentDateColumn() {
+                setTimeout(() => {
+                    const todayElem = document.querySelector('.today-col');
+                    if (todayElem && layoutViewMode === 'FULL_TABLE') {
+                        const container = document.getElementById('tableContainer');
+                        container.scrollTo({ left: Math.max(0, todayElem.offsetLeft - (container.clientWidth / 2) + (todayElem.clientWidth / 2)), behavior: 'smooth' });
+                    }
+                }, 100);
+            }
+
+            function getTodayString() {
+                const today = new Date();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                dateDisplay.innerText = `System Date: ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`;
+                return `${mm}/${dd}`; // Return only Month/Day to skip OS Year mismatches.
+            }
+
+            todayStr = getTodayString();
+            checkLocalStorage();
+
+            // Setup Listeners
+            fileInput.addEventListener('change', (e) => handleDataParsing(e));
+            appendFileInput.addEventListener('change', (e) => handleDataParsing(e));
+            importInitialBackup.addEventListener('change', handleImportBackup);
+            importBackupInput.addEventListener('change', handleImportBackup);
+            exportViewBtn.addEventListener('click', () => exportCSV());
+            exportBackupBtn.addEventListener('click', handleExportBackup);
+            addEmployeeBtn.addEventListener('click', handleAddEmployee);
+            undoBtn.addEventListener('click', handleUndo);
+            lockBtn.addEventListener('click', toggleReadonlyLock);
+            clearDataBtn.addEventListener('click', handleClearData);
+            
+            searchInput.addEventListener('input', renderDashboard);
+            sortFilter.addEventListener('change', renderDashboard);
+            roleFilter.addEventListener('change', renderDashboard);
+            
+            monthJumpDayView.addEventListener('change', (e) => handleMonthJumpSelector(e.target.value));
+            monthJumpTableView.addEventListener('change', (e) => handleMonthJumpSelector(e.target.value));
+            document.getElementById('closeModal').addEventListener('click', () => hideModal(employeeModal));
+            
+            // Shift Editing Setup
+            document.getElementById('seCancelBtn').addEventListener('click', () => hideModal(shiftEditModal));
+            document.querySelectorAll('.se-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => saveShiftChange(e.target.dataset.val));
+            });
+            document.getElementById('seSaveBtn').addEventListener('click', () => saveShiftChange(document.getElementById('seCustomInput').value.trim()));
+
+            // Delegation Context Switcher
+            const eventTargetContainer = document.body;
+            eventTargetContainer.addEventListener('click', (e) => {
+                const deleteBtn = e.target.closest('.delete-emp-btn');
+                if (deleteBtn) {
+                    if(isReadOnly) return;
+                    const empName = deleteBtn.dataset.emp;
+                    if(confirm(`Remove ${empName} from local database memory permanently?`)) {
+                        pushUndoState();
+                        allData = allData.filter(r => (r['Employee name'] || r['Employee Name']) !== empName);
+                        saveAndRender();
+                    }
+                    return;
+                }
+
+                const roleCell = e.target.closest('.role-cell');
+                if (roleCell) {
+                    if(isReadOnly) return;
+                    const empName = roleCell.dataset.emp;
+                    const newRole = prompt(`Assign a Department/Role for ${empName}:`, roleCell.innerText.replace('📋 ', ''));
+                    if (newRole !== null) {
+                        pushUndoState();
+                        const row = allData.find(r => (r['Employee name'] || r['Employee Name']) === empName);
+                        if (row) row['Role'] = newRole.trim() || 'Unassigned';
+                        populateRoleDropdown();
+                        saveAndRender();
+                    }
+                    return;
+                }
+
+                const badgeContainer = e.target.closest('.shift-btn');
+                if (badgeContainer) {
+                    if(isReadOnly) { alert('Unlock editing mode to process alterations.'); return; }
+                    editingShift = { emp: badgeContainer.dataset.emp, date: badgeContainer.dataset.date };
+                    document.getElementById('seEmpName').innerText = editingShift.emp;
+                    document.getElementById('seDate').innerText = editingShift.date;
+                    
+                    const row = allData.find(r => (r['Employee name'] || r['Employee Name']) === editingShift.emp);
+                    const currentVal = row ? row[editingShift.date] : '';
+                    document.getElementById('seCustomInput').value = (['WORKING', 'OFF', 'PTO', 'RDO', 'NAN', ''].includes(String(currentVal).trim().toUpperCase())) ? '' : currentVal;
+                    showModal(shiftEditModal);
+                }
+
+                const empNameCell = e.target.closest('.emp-name-cell');
+                if (empNameCell && !e.target.closest('.role-cell') && !e.target.closest('.delete-emp-btn')) {
+                    showEmployeeProfile(empNameCell.dataset.emp);
+                }
+            });
+
+            // Long-Press Mocking Context Engine
+            let touchTimer;
+            eventTargetContainer.addEventListener('touchstart', (e) => {
+                const targetBadge = e.target.closest('.shift-btn');
+                if(targetBadge && !isReadOnly) {
+                    touchTimer = setTimeout(() => {
+                        triggerShiftNotePrompt(targetBadge.dataset.emp, targetBadge.dataset.date);
+                    }, 600); 
+                }
+            }, { passive: true });
+            eventTargetContainer.addEventListener('touchend', () => clearTimeout(touchTimer), { passive: true });
+            eventTargetContainer.addEventListener('contextmenu', (e) => {
+                const targetBadge = e.target.closest('.shift-btn');
+                if(targetBadge) {
+                    e.preventDefault();
+                    if(isReadOnly) return;
+                    triggerShiftNotePrompt(targetBadge.dataset.emp, targetBadge.dataset.date);
+                }
+            });
+
+            function triggerShiftNotePrompt(empName, date) {
+                const noteKey = `${empName}_${date}`;
+                const newNote = prompt(`Add operational context note for ${empName} on ${date}:`, notesData[noteKey] || '');
+                if (newNote !== null) {
+                    pushUndoState();
+                    if (newNote.trim() === '') delete notesData[noteKey];
+                    else notesData[noteKey] = newNote.trim();
+                    localStorage.setItem('shiftNotes', JSON.stringify(notesData));
+                    renderDashboard();
+                }
+            }
+
+            function showToast(title, message) {
+                const toast = document.getElementById('toastNotification');
+                document.getElementById('toastTitle').innerText = title;
+                document.getElementById('toastMessage').innerText = message;
+                toast.classList.remove('translate-y-32', 'opacity-0');
+                setTimeout(() => toast.classList.add('translate-y-32', 'opacity-0'), 4000);
+            }
+
+            function toggleReadonlyLock() {
+                isReadOnly = !isReadOnly;
+                lockBtn.innerHTML = isReadOnly ? '🔒 Read-Only Active' : '🔓 Edit Mode Enabled';
+                lockBtn.className = isReadOnly 
+                    ? "px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 border border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 rounded-lg"
+                    : "px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800 rounded-lg";
+                document.body.classList.toggle('read-only-mode', isReadOnly);
+                renderDashboard();
+            }
+
+            function pushUndoState() {
+                undoStack.push(JSON.stringify({ data: allData, notes: notesData }));
+                if (undoStack.length > 20) undoStack.shift();
+                undoBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                undoBtn.className = "px-3 py-1.5 text-xs font-medium text-blue-600 bg-white border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 rounded-lg flex items-center gap-1 app-control";
+            }
+
+            function handleUndo() {
+                if (undoStack.length === 0 || isReadOnly) return;
+                const prevState = JSON.parse(undoStack.pop());
+                allData = prevState.data;
+                notesData = prevState.notes;
+                localStorage.setItem('scheduleData', JSON.stringify(allData));
+                localStorage.setItem('shiftNotes', JSON.stringify(notesData));
+                populateRoleDropdown();
+                renderDashboard();
+                if (undoStack.length === 0) {
+                    undoBtn.className = "opacity-50 cursor-not-allowed px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600 rounded-lg flex items-center gap-1 app-control";
+                }
+            }
+
+            function handleClearData() {
+                if(confirm("⚠️ Completely wipe local memory and reset application state workspace completely?")) {
+                    localStorage.removeItem('scheduleData');
+                    localStorage.removeItem('shiftNotes');
+                    location.reload();
+                }
+            }
+
+            function saveAndRender() {
+                localStorage.setItem('scheduleData', JSON.stringify(allData));
+                renderDashboard();
+            }
+
+            function handleDataParsing(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                Papa.parse(file, {
+                    header: true, skipEmptyLines: true,
+                    complete: function(results) {
+                        if (results.data.length > 0) {
+                            if(allData.length > 0) pushUndoState();
+                            const newData = results.data;
+                            let savedData = allData.length > 0 ? allData : [];
+                            
+                            if (savedData.length === 0) savedData = newData;
+                            else {
+                                newData.forEach(newRow => {
+                                    const empName = newRow['Employee name'] || newRow['Employee Name'];
+                                    const existIdx = savedData.findIndex(r => (r['Employee name'] || r['Employee Name']) === empName);
+                                    if (existIdx > -1) {
+                                        Object.keys(newRow).forEach(k => {
+                                            if (k.toLowerCase() !== 'employee name') savedData[existIdx][k] = newRow[k];
+                                        });
+                                    } else savedData.push(newRow);
+                                });
+                            }
+
+                            let allKeys = new Set();
+                            savedData.forEach(row => Object.keys(row).forEach(k => allKeys.add(k)));
+                            const newEmpNames = new Set(newData.map(r => r['Employee name'] || r['Employee Name']));
+                            savedData.forEach(row => {
+                                allKeys.forEach(k => { if (!(k in row)) row[k] = newEmpNames.has(row['Employee name'] || row['Employee Name']) ? '' : 'OFF'; });
+                                if(!row['Role']) row['Role'] = 'Unassigned';
+                            });
+
+                            allData = savedData;
+                            localStorage.setItem('scheduleData', JSON.stringify(savedData));
+                            checkLocalStorage();
+                            showToast("Matrix Merged Successfully", "Operational schedule framework database sync processing sequence finalized.");
+                        }
+                        e.target.value = ''; 
+                    }
+                });
+            }
+
+            function checkLocalStorage() {
+                const saved = localStorage.getItem('scheduleData');
+                if (localStorage.getItem('shiftNotes')) notesData = JSON.parse(localStorage.getItem('shiftNotes'));
+                if (saved && saved !== '[]') {
+                    allData = JSON.parse(saved);
+                    allData.forEach(r => { if(!r['Role']) r['Role'] = 'Unassigned'; });
+                    const keys = Object.keys(allData[0]);
+                    allDates = keys.filter(col => col.toLowerCase() !== 'employee name' && col.toLowerCase() !== 'role');
+                    
+                    if(allDates.length > 0) {
+                        const match = allDates.find(d => d.startsWith(todayStr));
+                        focusedDateStr = match ? match : allDates[0];
+                    }
+
+                    populateRoleDropdown();
+                    populateMonthJumpDropdowns();
+                    uploadSection.classList.add('hidden');
+                    dashboardSection.classList.remove('hidden');
+                    analyticsBlock.classList.remove('hidden');
+                    document.querySelectorAll('.app-control').forEach(el => el.classList.remove('hidden'));
+                    
+                    renderDashboard();
+                    if(layoutViewMode === 'FULL_TABLE') scrollToCurrentDateColumn(); 
+                } else {
+                    uploadSection.classList.remove('hidden');
+                    dashboardSection.classList.add('hidden');
+                    analyticsBlock.classList.add('hidden');
+                    document.querySelectorAll('.app-control').forEach(el => el.classList.add('hidden'));
+                }
+            }
+
+            function populateRoleDropdown() {
+                const roles = new Set(allData.map(r => r.Role));
+                const currentVal = roleFilter.value;
+                roleFilter.innerHTML = '<option value="ALL">All Departments / Roles</option>';
+                Array.from(roles).sort().forEach(role => {
+                    roleFilter.innerHTML += `<option value="${role}">${role}</option>`;
+                });
+                roleFilter.value = currentVal || 'ALL';
+            }
+
+            function populateMonthJumpDropdowns() {
+                const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                let uniqueMonths = new Set();
+                allDates.forEach(d => {
+                    const parts = d.split('/');
+                    if(parts.length >= 2) uniqueMonths.add(`${parts[0]}/20${parts[2]}`);
+                });
+
+                let optionsHTML = '<option value="">Jump Matrix Roster to Month...</option>';
+                Array.from(uniqueMonths).forEach(my => {
+                    const m = parseInt(my.split('/')[0], 10) - 1;
+                    optionsHTML += `<option value="${my.split('/')[0]}">${monthNames[m]} ${my.split('/')[1]}</option>`;
+                });
+                monthJumpDayView.innerHTML = optionsHTML;
+                monthJumpTableView.innerHTML = optionsHTML;
+            }
+
+            function handleMonthJumpSelector(selectedMonth) {
+                if (!selectedMonth) return;
+                const targetDateStr = allDates.find(d => d.startsWith(`${selectedMonth}/`));
+                if(targetDateStr) {
+                    focusedDateStr = targetDateStr;
+                    renderDashboard();
+                    if(layoutViewMode === 'FULL_TABLE') scrollToCurrentDateColumn();
+                }
+            }
+
+            function handleAddEmployee() {
+                if(isReadOnly) return;
+                const name = prompt("Enter new staff member full legal token name:");
+                if (name && name.trim() !== '') {
+                    if(allData.some(r => (r['Employee name'] || r['Employee Name']) === name.trim())) return;
+                    pushUndoState();
+                    let newRow = { 'Employee name': name.trim(), 'Role': 'Unassigned' };
+                    allDates.forEach(d => newRow[d] = '');
+                    allData.push(newRow);
+                    populateRoleDropdown();
+                    saveAndRender();
+                }
+            }
+
+            function saveShiftChange(newVal) {
+                if (!editingShift || isReadOnly) return;
+                pushUndoState();
+                const row = allData.find(r => (r['Employee name'] || r['Employee Name']) === editingShift.emp);
+                if (row) row[editingShift.date] = newVal;
+                saveAndRender();
+                hideModal(shiftEditModal);
+                editingShift = null;
+            }
+
+            function analyzeStatus(val) {
+                const v = String(val || '').trim().toUpperCase();
+                if (!v || v === 'NAN' || v === 'WORKING') return { cat: 'WORKING', text: 'Working', isCustom: false };
+                if (v === 'OFF') return { cat: 'OFF', text: 'OFF', isCustom: false };
+                if (v === 'PTO') return { cat: 'PTO', text: 'PTO', isCustom: false };
+                if (v === 'RDO') return { cat: 'RDO', text: 'RDO', isCustom: false };
+                return { cat: 'WORKING', text: val, isCustom: true }; 
+            }
+
+            function getStatusBadgeHTML(status, empName, date) {
+                const analyzed = analyzeStatus(status);
+                let css = "";
+                if (analyzed.isCustom) css = "bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-950/70 dark:text-cyan-300 dark:border-cyan-800";
+                else if (analyzed.cat === 'WORKING') css = "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800";
+                else if (analyzed.cat === 'OFF') css = "bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-800";
+                else if (analyzed.cat === 'PTO') css = "bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-950/70 dark:text-indigo-300 dark:border-indigo-800";
+                else if (analyzed.cat === 'RDO') css = "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800";
+
+                const noteKey = `${empName}_${date}`;
+                const noteIndicator = notesData[noteKey] ? `<span class="absolute top-1 right-2 text-xs">📝</span>` : '';
+
+                return `<div class="shift-btn cursor-pointer px-3 py-2 rounded-xl text-sm font-black border transition-all inline-block w-full text-center relative shadow-sm ${css}" data-emp="${empName}" data-date="${date}">${analyzed.text}${noteIndicator}</div>`;
+            }
+
+            function renderDashboard() {
+                const term = searchInput.value.toLowerCase();
+                currentFilteredRows = allData.filter(row => {
+                    const name = (row['Employee name'] || row['Employee Name'] || '').toLowerCase();
+                    return name.includes(term);
+                });
+
+                const rFilter = roleFilter.value;
+                if (rFilter !== 'ALL') currentFilteredRows = currentFilteredRows.filter(row => row.Role === rFilter);
+
+                const sortMode = sortFilter.value;
+                if (sortMode === 'AZ') {
+                    currentFilteredRows.sort((a, b) => (a['Employee name'] || '').localeCompare(b['Employee name'] || ''));
+                } else if (sortMode === 'WORKING') {
+                    currentFilteredRows.sort((a, b) => {
+                        let statA = analyzeStatus(a[focusedDateStr]).cat === 'WORKING' ? 0 : 1;
+                        let statB = analyzeStatus(b[focusedDateStr]).cat === 'WORKING' ? 0 : 1;
+                        return statA - statB; 
+                    });
+                }
+
+                if (layoutViewMode === 'DAY_FOCUS') {
+                    focusedDateHeading.innerText = focusedDateStr;
+                    dayFocusCardsContainer.innerHTML = '';
+                    
+                    if(currentFilteredRows.length === 0) {
+                        dayFocusCardsContainer.innerHTML = `<div class="p-6 text-center text-slate-400 bg-white dark:bg-slate-800 rounded-xl border col-span-full">No active records found.</div>`;
+                    } else {
+                        currentFilteredRows.forEach(row => {
+                            let empName = row['Employee name'] || row['Employee Name'] || 'Unknown';
+                            let role = row.Role || 'Unassigned';
+                            let card = document.createElement('div');
+                            card.className = "bg-white dark:bg-slate-800 p-3 rounded-xl border dark:border-slate-700 shadow-sm flex items-center justify-between gap-4";
+                            
+                            card.innerHTML = `
+                                <div class="overflow-hidden flex-1">
+                                    <h4 class="emp-name-cell font-black text-slate-900 dark:text-white text-base hover:underline cursor-pointer truncate" data-emp="${empName}">${empName}</h4>
+                                    <p class="role-cell text-xs font-bold text-slate-400 dark:text-slate-500 mt-0.5 cursor-pointer hover:text-blue-500" data-emp="${empName}">📋 ${role}</p>
+                                </div>
+                                <div class="w-28 flex-shrink-0">
+                                    ${getStatusBadgeHTML(row[focusedDateStr], empName, focusedDateStr)}
+                                </div>
+                                <button class="delete-emp-btn text-slate-300 hover:text-rose-500 p-1" data-emp="${empName}">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>`;
+                            dayFocusCardsContainer.appendChild(card);
+                        });
+                    }
+                } else {
+                    let trHead = `<th class="px-3 py-3 sticky-col-left font-bold bg-slate-100 dark:bg-slate-900 border-b dark:border-slate-700 min-w-[150px]">Staff Name</th>`;
+                    allDates.forEach(date => {
+                        const isToday = date === focusedDateStr;
+                        const thClass = isToday ? "px-3 py-3 text-center font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-b-2 border-blue-500 today-col" : "px-3 py-3 text-center font-semibold border-b dark:border-slate-700";
+                        trHead += `<th class="${thClass}">${date}</th>`;
+                    });
+                    tableHead.innerHTML = `<tr>${trHead}</tr>`;
+
+                    tableBody.innerHTML = '';
+                    if (currentFilteredRows.length === 0) {
+                        tableBody.innerHTML = `<tr><td colspan="${allDates.length + 1}" class="text-center py-10 text-slate-500 text-lg">No records found.</td></tr>`;
+                    } else {
+                        currentFilteredRows.forEach(row => {
+                            let empName = row['Employee name'] || row['Employee Name'] || 'Unknown';
+                            let role = row.Role || 'Unassigned';
+                            let tr = document.createElement('tr');
+                            tr.className = "hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group";
+                            
+                            let maxConsecutive = 0;
+                            let currentConsecutive = 0;
+                            allDates.forEach(date => {
+                                if (analyzeStatus(row[date]).cat === 'WORKING') {
+                                    currentConsecutive++;
+                                    if (currentConsecutive > maxConsecutive) maxConsecutive = currentConsecutive;
+                                } else {
+                                    currentConsecutive = 0;
+                                }
+                            });
+                            const fatigueWarning = maxConsecutive >= 7 ? `<span title="Fatigue Warning: Scheduled ${maxConsecutive} days in a row" class="cursor-help text-xs ml-1">⚠️</span>` : '';
+
+                            let html = `<td class="px-3 py-2 sticky-col-left bg-white dark:bg-slate-800 group-hover:bg-slate-50 dark:group-hover:bg-slate-900 border-r border-slate-100 dark:border-slate-700/50 overflow-hidden max-w-[150px]">
+                                <div class="flex flex-col truncate">
+                                    <span class="emp-name-cell cursor-pointer font-black text-sm text-slate-900 dark:text-white hover:text-blue-500" data-emp="${empName}">${empName}${fatigueWarning}</span>
+                                    <span class="role-cell cursor-pointer text-[10px] font-bold text-slate-400 mt-0.5" data-emp="${empName}">📋 ${role}</span>
+                                </div>
+                            </td>`;
+                            
+                            allDates.forEach(date => {
+                                const isToday = date === focusedDateStr;
+                                const tdClass = isToday ? "px-1 py-1.5 min-w-[105px] bg-blue-50/20 dark:bg-blue-950/20 today-col" : "px-1 py-1.5 min-w-[105px]";
+                                html += `<td class="${tdClass}">${getStatusBadgeHTML(row[date], empName, date)}</td>`;
+                            });
+                            tr.innerHTML = html;
+                            tableBody.appendChild(tr);
+                        });
+                    }
+                }
+
+                updateMetricsAndChart();
+            }
+
+            function updateMetricsAndChart() {
+                let w = 0, p = 0, o = 0, r = 0;
+                allData.forEach(row => {
+                    const stat = analyzeStatus(row[focusedDateStr]).cat;
+                    if (stat === 'WORKING') w++; 
+                    else if (stat === 'PTO') p++; 
+                    else if (stat === 'OFF') o++;
+                    else if (stat === 'RDO') r++;
+                });
+                metricTotal.innerText = allData.length;
+                metricWorking.innerText = w;
+                metricPTO.innerText = p;
+                metricOff.innerText = o;
+                metricRDO.innerText = r;
+
+                updateChart(allDates, currentFilteredRows);
+            }
+
+            function updateChart(dates, rows) {
+                let sIdx = dates.indexOf(focusedDateStr);
+                if (sIdx === -1) sIdx = 0;
+                const chartDates = dates.slice(sIdx, sIdx + 7);
+                
+                const dataW = [], dataO = [], dataP = [], dataR = [];
+                chartDates.forEach(d => {
+                    let w=0, o=0, p=0, r=0;
+                    rows.forEach(rw => {
+                        const stat = analyzeStatus(rw[d]).cat;
+                        if(stat==='WORKING') w++; else if(stat==='OFF') o++; else if(stat==='PTO') p++; else if(stat==='RDO') r++;
+                    });
+                    dataW.push(w); dataO.push(o); dataP.push(p); dataR.push(r);
+                });
+
+                const isDark = document.documentElement.classList.contains('dark');
+                const textColor = isDark ? '#94a3b8' : '#64748b';
+                const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+                if(chartInstance) chartInstance.destroy();
+                const ctx = document.getElementById('forecastChart').getContext('2d');
+                chartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: chartDates,
+                        datasets: [
+                            { label: 'Duty', data: dataW, backgroundColor: isDark ? '#059669' : '#10b981', borderRadius: 4 },
+                            { label: 'OFF', data: dataO, backgroundColor: isDark ? '#e11d48' : '#f43f5e', borderRadius: 4 },
+                            { label: 'RDO', data: dataR, backgroundColor: isDark ? '#d97706' : '#f59e0b', borderRadius: 4 },
+                            { label: 'PTO', data: dataP, backgroundColor: isDark ? '#4f46e5' : '#6366f1', borderRadius: 4 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: window.innerWidth > 640, labels: { color: textColor, boxWidth: 10 }, position: 'bottom' } },
+                        scales: {
+                            x: { stacked: true, grid: { display: false }, ticks: { color: textColor, font: { size: 10 } } },
+                            y: { stacked: true, grid: { color: gridColor }, ticks: { color: textColor, stepSize: 1, font: { size: 10 } } }
+                        }
+                    }
+                });
+            }
+
+            function handleExportBackup() {
+                const blob = new Blob([JSON.stringify({ scheduleData: allData, shiftNotes: notesData }, null, 2)], { type: "application/json" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `Schedule_Master_Backup.json`;
+                link.click();
+            }
+
+            function handleImportBackup(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        const backup = JSON.parse(event.target.result);
+                        if (backup.scheduleData) {
+                            pushUndoState();
+                            allData = backup.scheduleData;
+                            notesData = backup.shiftNotes || {};
+                            localStorage.setItem('scheduleData', JSON.stringify(allData));
+                            localStorage.setItem('shiftNotes', JSON.stringify(notesData));
+                            checkLocalStorage();
+                            showToast("Backup Engine Restored", "Data map array fully re-committed to internal database.");
+                        }
+                    } catch (err) { alert("File processing parsing exception error."); }
+                };
+                reader.readAsText(file);
+            }
+
+            function exportCSV() {
+                const exportArr = currentFilteredRows.map(row => {
+                    let newRow = { 'Employee name': row['Employee name'] || row['Employee Name'], 'Role': row.Role };
+                    allDates.forEach(d => newRow[d] = row[d] || ''); 
+                    return newRow;
+                });
+                const csv = Papa.unparse(exportArr);
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `Schedule_Export.csv`;
+                link.click();
+            }
+        });
+    </script>
+</body>
+</html>
